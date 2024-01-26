@@ -1,0 +1,342 @@
+./Assets.xcassets:
+./ContentView.swift:
+//
+//  ContentView.swift
+//  EUMembers
+//
+//  Created by Ej Sobrepeña on 14.4.2023.
+//
+
+import SwiftUI
+
+struct ContentView: View {
+    @EnvironmentObject var manager: CountryManager
+    
+    var body: some View {
+        
+        NavigationStack{
+            List(){
+                Section(header: Text ("Current Members")){
+                    ForEach(manager.countries){ country in
+                        if(country.isMember){
+                            NavigationLink{
+                                CountryView(country: country)
+                            }label: {
+                                ListView(country: country)
+                            }
+                        }
+                    }
+                }
+                Section(header: Text ("Past Members")){
+                    ForEach(manager.countries){ country in
+                        if(!country.isMember){
+                            NavigationLink{
+                                CountryView(country: country)
+                            }label: {
+                                ListView(country: country)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("European Union")
+            
+        }
+    }
+}
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+            .environmentObject(CountryManager())
+    }
+}
+
+./Country.swift:
+//
+//  Country.swift
+//  EUMembers
+//
+//  Created by Jere Käpyaho (TAMK) on 31.3.2023.
+//
+
+import Foundation
+
+struct Country:Identifiable, Codable {    
+    let id = UUID()
+    
+    var code: String
+    var name: String
+    var area: Int
+    var population: Int
+    var populationDensity: Int {
+        return self.population / self.area
+    }
+    var isMember: Bool
+    var isEuroZone: Bool
+    var isSchengen: Bool
+    
+    enum CodingKeys: String, CodingKey {
+        case code
+        case name
+        case area
+        case population
+        case isMember
+        case isEuroZone
+        case isSchengen
+    }
+}
+./CountryDetailsView.swift:
+//
+//  CountryDetailsView.swift
+//  EUMembers
+//
+//  Created by Ej Sobrepeña on 14.4.2023.
+//
+
+import SwiftUI
+
+
+struct CountryDetailsView: View {
+    @Binding var country: Country
+    
+    var body: some View {
+        VStack {
+            Text("Population: \(country.population)")
+            Text("Area: \(country.area) km\u{B2}")
+            Text("Population density: \(country.populationDensity) persons per km\u{B2}")
+            
+            MembershipView(country: $country)
+            Text("EU Member: \(country.isMember ? "Yes" : "No")")
+            Text("Schengen Area: \(country.isSchengen ? "Yes" : "No")")
+            Text("EuroZone: \(country.isEuroZone ? "Yes" : "No")\n")
+            
+            let url = "https://en.m.wikipedia.org/wiki/" + country.name.replacingOccurrences(of: " ", with: "_")
+            
+            Link("\(Image(systemName: "link")) Learn more", destination: URL(string: url)!)
+
+        }
+    }
+}
+
+struct CountryDetailsView_Preview: PreviewProvider {
+    static var previews: some View {
+        CountryDetailsView(country: .constant(finland))
+    }
+}
+
+
+./CountryManager.swift:
+//
+//  CountryManager.swift
+//  EUMembers
+//
+//  Created by Ej Sobrepeña on 19.4.2023.
+//
+
+import Foundation
+
+class CountryManager: ObservableObject{
+    @Published   var countries : [Country]
+    
+    init() {
+        self.countries = []
+        self.loadCountriesWithURLSession()
+    }
+    let urlString = "https://wy3dsyi6k62vlns5tmm72zlbcu0vnxda.lambda-url.eu-north-1.on.aws/"
+    
+    private func loadCountriesWithURLSession(){
+        if let url = URL(string: urlString){
+            print("About to hit lambda function URL to get countries (Data)")
+            
+            let task = URLSession.shared.dataTask(with: url) { data, response, error in
+                if let jsonData = data {
+                    let decoder = JSONDecoder()
+                    if let countries = try? decoder.decode([Country].self, from: jsonData){
+                        print("Countries loaded from lambda function URL (URLSession)")
+                        DispatchQueue.main.async {
+                            self.countries = []
+                        }
+                        for country in countries {
+                            DispatchQueue.main.async {
+                                self.countries.append(country)
+                            }
+                            Thread.sleep(forTimeInterval: 0.2)
+                        }
+                    }
+                    else{
+                        print("Error in parsing JSON data")
+                    }
+                }
+                else if let error = error {
+                    print("Unable to retrieve JSON data, error: \(error)")
+                }
+            }
+            
+            task.resume()
+            
+        }
+        else{
+            print("BAD URL")
+        }
+    }
+}
+./CountryView.swift:
+//
+//  CountryView.swift
+//  EUMembers
+//
+//  Created by Ej Sobrepeña on 21.4.2023.
+//
+
+import SwiftUI
+struct CountryView:View{
+    @State var country: Country
+    
+    var body: some View {
+        VStack {
+            Text("\(country.name)")
+                .font(.largeTitle)
+            
+            Image(country.code.lowercased())
+                .resizable()
+                .scaledToFit()
+                .border(Color.black, width: 1)
+            
+            CountryDetailsView(country: $country)
+        }
+        .padding()
+        
+    }
+        
+}
+
+struct Countryview_Previews:PreviewProvider{
+    static var previews: some View{
+        CountryView(country: finland)
+    }
+}
+./EUMembersApp.swift:
+//
+//  EUMembersApp.swift
+//  EUMembers
+//
+//  Created by Ej Sobrepeña on 14.4.2023.
+//
+
+import SwiftUI
+
+
+let finland = Country(
+    code: "FI",
+    name: "Finland",
+    area: 338_435,
+    population: 5_555_300,
+    isMember: true,
+    isEuroZone: true,
+    isSchengen: true)
+
+@main
+struct EUMembersApp: App {
+    
+    @StateObject private var manager = CountryManager()
+    
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environmentObject(manager)
+        }
+    }
+}
+
+./ListView.swift:
+//
+//  ListView.swift
+//  EUMembers
+//
+//  Created by Ej Sobrepeña on 10.5.2023.
+//
+
+import SwiftUI
+
+struct ListView: View {
+    @State var country: Country
+    
+    var body: some View {
+        HStack{            
+            Image(country.code.lowercased())
+                .resizable()
+                .frame(width: 32, height: 21.3)
+                .border(.black)
+            Text(country.name)
+                .font(.system(size:20.0))
+            Spacer()            
+            if country.isSchengen{
+                Image("sch")
+                    .resizable()
+                    .frame(width: 35, height: 35)
+            }
+            if country.isEuroZone{
+                let customColor = Color(Color.RGBColorSpace.sRGB, red: 38/255, green: 50/255, blue: 133/255, opacity: 1)
+                Image(systemName: "eurosign.circle.fill")
+                    .font(.system(size: 30))
+                    .foregroundColor(customColor)                
+            }
+        }
+    }
+}
+
+struct ListView_Preview:PreviewProvider{
+    static var previews: some View{
+        ListView(country: finland)
+    }
+}
+./MembershipView.swift:
+//
+//  MembershipView.swift
+//  EUMembers
+//
+//  Created by Ej Sobrepeña on 14.4.2023.
+//
+
+import SwiftUI
+
+struct MembershipView: View {
+    @Binding var country: Country
+    
+    
+    var body: some View {
+        HStack{
+            let badgeSize: CGFloat = 90
+            
+            if country.isMember{
+                Image("eu")
+                    .resizable()
+                    .frame(width: badgeSize, height: badgeSize)
+            }
+            
+            if country.isSchengen{
+                Image("sch")
+                    .resizable()
+                    .frame(width: badgeSize, height: badgeSize)
+            }
+            
+            let customColor = Color(Color.RGBColorSpace.sRGB, red: 38/255, green: 50/255, blue: 133/255, opacity: 1)
+            if country.isEuroZone{
+                Image(systemName: "eurosign.circle.fill")
+                    .font(.system(size: badgeSize-14))
+                    .foregroundColor(customColor)
+                
+
+            }
+        }
+    }
+}
+
+struct MembershipView_Preview:PreviewProvider{
+    static var previews: some View{
+        MembershipView(country: .constant(finland))
+    }
+}
+./Preview Content:
+./outputfile:
